@@ -1375,16 +1375,28 @@ func joinHandler(server *Server, client *Client, msg ircmsg.Message, rb *Respons
 		if len(keys) > i {
 			key = keys[i]
 		}
-		err, forward := server.channels.Join(client, name, key, false, rb)
+		blocked, reason, redirected, silent, stealth := server.plugins.OnValidateJoin(client.Nick(), name)
+		if blocked {
+			rb.Add(nil, server.name, ERR_BANNEDFROMCHAN, client.Nick(), utils.SafeErrorParam(name), reason)
+			continue
+		}
+		if redirected != "" {
+			name = redirected
+		}
+
+		err, forward := server.channels.Join(client, name, key, false, rb, silent, stealth)
 		if err != nil {
 			if forward != "" {
 				rb.Add(nil, server.name, ERR_LINKCHANNEL, client.Nick(), utils.SafeErrorParam(name), forward, client.t("Forwarding to another channel"))
 				name = forward
-				err, _ = server.channels.Join(client, name, key, false, rb)
+				err, _ = server.channels.Join(client, name, key, false, rb, silent, stealth)
 			}
 			if err != nil {
 				sendJoinError(client, name, rb, err)
 			}
+		}
+		if err == nil {
+			server.plugins.OnJoin(client.Nick(), name)
 		}
 	}
 	return false
@@ -1449,7 +1461,7 @@ func sajoinHandler(server *Server, client *Client, msg ircmsg.Message, rb *Respo
 
 	channels := strings.Split(channelString, ",")
 	for _, chname := range channels {
-		err, _ := server.channels.Join(target, chname, "", true, rb)
+		err, _ := server.channels.Join(target, chname, "", true, rb, false, false)
 		if err != nil {
 			sendJoinError(client, chname, rb, err)
 		}
@@ -1520,6 +1532,7 @@ func kickHandler(server *Server, client *Client, msg ircmsg.Message, rb *Respons
 			continue
 		}
 		channel.Kick(client, target, comment, rb, false)
+		server.plugins.OnKick(client.Nick(), kick.channel, kick.nick, comment)
 	}
 	return false
 }
@@ -2334,8 +2347,14 @@ func messageHandler(server *Server, client *Client, msg ircmsg.Message, rb *Resp
 			continue
 		}
 
+		// plugin hook
+		modMsg := server.plugins.OnPrivmsg(client.Nick(), targetString, message)
+		if modMsg == nil {
+			continue
+		}
+
 		// each target gets distinct msgids
-		splitMsg := utils.MakeMessage(message)
+		splitMsg := utils.MakeMessage(*modMsg)
 		dispatchMessageToTarget(client, clientOnlyTags, histType, msg.Command, targetString, splitMsg, rb)
 	}
 	return false
@@ -2677,6 +2696,8 @@ func partHandler(server *Server, client *Client, msg ircmsg.Message, rb *Respons
 		err := server.channels.Part(client, chname, reason, rb)
 		if err == errNoSuchChannel {
 			rb.Add(nil, server.name, ERR_NOSUCHCHANNEL, client.nick, utils.SafeErrorParam(chname), client.t("No such channel"))
+		} else if err == nil {
+			server.plugins.OnPart(client.Nick(), chname, reason)
 		}
 	}
 	return false
@@ -2944,6 +2965,7 @@ func quitHandler(server *Server, client *Client, msg ircmsg.Message, rb *Respons
 	if len(msg.Params) > 0 {
 		reason += ": " + msg.Params[0]
 	}
+	server.plugins.OnQuit(client.Nick(), reason)
 	client.Quit(reason, rb.session)
 	return true
 }
@@ -4015,6 +4037,12 @@ func webpushHandler(server *Server, client *Client, msg ircmsg.Message, rb *Resp
 			webpush.UrgencyHigh,
 			webpush.PingMessage,
 		); err == nil {
+			for _, otherClient := range server.clients.AllClients() {
+				if otherClient != client {
+					otherClient.deletePushSubscription(endpoint, true)
+				}
+			}
+
 			if err := client.addPushSubscription(endpoint, keys); err == nil {
 				rb.Add(nil, server.name, "WEBPUSH", "REGISTER", msg.Params[1], msg.Params[2])
 				rb.session.webPushEndpoint = endpoint

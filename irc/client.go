@@ -499,7 +499,7 @@ func (server *Server) AddAlwaysOnClient(account ClientAccount, channelToStatus m
 	for chname, status := range channelToStatus {
 		// XXX we're using isSajoin=true, to make these joins succeed even without channel key
 		// this is *probably* ok as long as the persisted memberships are accurate
-		server.channels.Join(client, chname, "", true, nil)
+		server.channels.Join(client, chname, "", true, nil, false, false)
 		if channel := server.channels.Get(chname); channel != nil {
 			channel.setMemberStatus(client, status)
 		} else {
@@ -2009,6 +2009,7 @@ type pushQueue struct {
 	queue      chan pushMessage
 	once       sync.Once
 	dropped    atomic.Uint64
+	lastPush   map[string]time.Time
 }
 
 func (c *Client) ensurePushInitialized() {
@@ -2018,6 +2019,7 @@ func (c *Client) ensurePushInitialized() {
 func (c *Client) initializePush() {
 	// allocate the queue
 	c.pushQueue.queue = make(chan pushMessage, pushQueueLengthPerClient)
+	c.pushQueue.lastPush = make(map[string]time.Time)
 }
 
 func (client *Client) dispatchPushMessage(msg pushMessage) {
@@ -2040,9 +2042,18 @@ func (client *Client) pushWorker() {
 	for {
 		select {
 		case msg := <-client.pushQueue.queue:
-			for _, sub := range client.getPushSubscriptions(false) {
-				if !client.skipPushMessage(msg) {
+			if time.Since(client.pushQueue.lastPush[msg.cftarget]) < 60*time.Second {
+				continue
+			}
+
+			if !client.skipPushMessage(msg) {
+				dispatched := false
+				for _, sub := range client.getPushSubscriptions(false) {
 					client.sendAndTrackPush(sub.Endpoint, sub.Keys, msg, true)
+					dispatched = true
+				}
+				if dispatched {
+					client.pushQueue.lastPush[msg.cftarget] = time.Now()
 				}
 			}
 		default:

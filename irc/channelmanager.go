@@ -101,7 +101,7 @@ func (cm *ChannelManager) Get(name string) (channel *Channel) {
 }
 
 // Join causes `client` to join the channel named `name`, creating it if necessary.
-func (cm *ChannelManager) Join(client *Client, name string, key string, isSajoin bool, rb *ResponseBuffer) (err error, forward string) {
+func (cm *ChannelManager) Join(client *Client, name string, key string, isSajoin bool, rb *ResponseBuffer, silent bool, stealth bool) (err error, forward string) {
 	server := client.server
 	casefoldedName, err := CasefoldChannel(name)
 	skeleton, skerr := Skeleton(name)
@@ -145,7 +145,7 @@ func (cm *ChannelManager) Join(client *Client, name string, key string, isSajoin
 		return err, ""
 	}
 
-	err, forward = channel.Join(client, key, isSajoin || newChannel, rb)
+	err, forward = channel.Join(client, key, isSajoin || newChannel, rb, silent, stealth)
 
 	cm.maybeCleanup(channel, true)
 

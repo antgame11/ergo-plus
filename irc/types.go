@@ -18,6 +18,7 @@ type ClientSet = utils.HashSet[*Client]
 type memberData struct {
 	modes    modes.ModeSet
 	joinTime int64
+	hidden   bool
 }
 
 // MemberSet is a set of members with modes.

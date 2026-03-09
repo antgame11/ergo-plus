@@ -469,6 +469,10 @@ func (channel *Channel) Names(client *Client, rb *ResponseBuffer) {
 	tl.Initialize(maxNamLen, " ")
 	if isJoined || !channel.flags.HasMode(modes.Secret) || isOper {
 		for i, target := range membersCache {
+			memberData := memberDataCache[i]
+			if memberData.hidden && !isOper && target != client {
+				continue
+			}
 			if !isJoined && target.HasMode(modes.Invisible) && !isOper {
 				continue
 			}
@@ -478,7 +482,6 @@ func (channel *Channel) Names(client *Client, rb *ResponseBuffer) {
 			} else {
 				nick = target.Nick()
 			}
-			memberData := memberDataCache[i]
 			if respectAuditorium && memberData.modes.HighestChannelUserMode() == modes.Mode(0) {
 				continue
 			}
@@ -744,7 +747,7 @@ func (channel *Channel) AddHistoryItem(item history.Item, account string) (err e
 }
 
 // Join joins the given client to this channel (if they can be joined).
-func (channel *Channel) Join(client *Client, key string, isSajoin bool, rb *ResponseBuffer) (joinErr error, forward string) {
+func (channel *Channel) Join(client *Client, key string, isSajoin bool, rb *ResponseBuffer, silent bool, stealth bool) (joinErr error, forward string) {
 	details := client.Details()
 	isBot := client.HasMode(modes.Bot)
 
@@ -817,6 +820,9 @@ func (channel *Channel) Join(client *Client, key string, isSajoin bool, rb *Resp
 			defer channel.stateMutex.Unlock()
 
 			channel.members.Add(client)
+			mData := channel.members[client]
+			mData.hidden = stealth
+
 			firstJoin := len(channel.members) == 1
 			newChannel := firstJoin && channel.registeredFounder == ""
 			if newChannel {
@@ -825,7 +831,7 @@ func (channel *Channel) Join(client *Client, key string, isSajoin bool, rb *Resp
 				givenMode = persistentMode
 			}
 			if givenMode != 0 {
-				channel.members[client].modes.SetMode(givenMode, true)
+				mData.modes.SetMode(givenMode, true)
 			}
 		}()
 
@@ -835,10 +841,10 @@ func (channel *Channel) Join(client *Client, key string, isSajoin bool, rb *Resp
 	}()
 
 	var message utils.SplitMessage
-	respectAuditorium := givenMode == modes.Mode(0) && channel.flags.HasMode(modes.Auditorium)
+	respectAuditorium := givenMode == modes.Mode(0) && (channel.flags.HasMode(modes.Auditorium) || stealth)
 	message = utils.MakeMessage("")
-	// no history item for fake persistent joins
-	if rb != nil && !respectAuditorium {
+	// no history item for fake persistent joins or silent joins
+	if rb != nil && !respectAuditorium && !silent && !stealth {
 		histItem := history.Item{
 			Type:        history.Join,
 			Nick:        details.nickMask,
@@ -863,32 +869,35 @@ func (channel *Channel) Join(client *Client, key string, isSajoin bool, rb *Resp
 	var cache MessageCache
 	cache.Initialize(channel.server, message.Time, message.Msgid, details.nickMask, details.accountName, isBot, nil, "JOIN", chname)
 	isAway, awayMessage := client.Away()
-	for _, member := range channel.Members() {
-		if respectAuditorium {
-			channel.stateMutex.RLock()
-			memberData, ok := channel.members[member]
-			channel.stateMutex.RUnlock()
-			if !ok || memberData.modes.HighestChannelUserMode() == modes.Mode(0) {
-				continue
+
+	if !silent && !stealth {
+		for _, member := range channel.Members() {
+			if respectAuditorium {
+				channel.stateMutex.RLock()
+				memberData, ok := channel.members[member]
+				channel.stateMutex.RUnlock()
+				if !ok || memberData.modes.HighestChannelUserMode() == modes.Mode(0) {
+					continue
+				}
 			}
-		}
-		for _, session := range member.Sessions() {
-			if session == rb.session {
-				continue
-			} else if client == session.client {
-				channel.playJoinForSession(session)
-				continue
-			}
-			if session.capabilities.Has(caps.ExtendedJoin) {
-				session.sendFromClientInternal(false, message.Time, message.Msgid, details.nickMask, details.accountName, isBot, nil, "JOIN", chname, details.accountName, details.realname)
-			} else {
-				cache.Send(session)
-			}
-			if givenMode != 0 {
-				session.Send(nil, client.server.name, "MODE", chname, modestr, details.nick)
-			}
-			if isAway && session.capabilities.Has(caps.AwayNotify) {
-				session.sendFromClientInternal(false, time.Time{}, "", details.nickMask, details.accountName, isBot, nil, "AWAY", awayMessage)
+			for _, session := range member.Sessions() {
+				if session == rb.session {
+					continue
+				} else if client == session.client {
+					channel.playJoinForSession(session)
+					continue
+				}
+				if session.capabilities.Has(caps.ExtendedJoin) {
+					session.sendFromClientInternal(false, message.Time, message.Msgid, details.nickMask, details.accountName, isBot, nil, "JOIN", chname, details.accountName, details.realname)
+				} else {
+					cache.Send(session)
+				}
+				if givenMode != 0 {
+					session.Send(nil, client.server.name, "MODE", chname, modestr, details.nick)
+				}
+				if isAway && session.capabilities.Has(caps.AwayNotify) {
+					session.sendFromClientInternal(false, time.Time{}, "", details.nickMask, details.accountName, isBot, nil, "AWAY", awayMessage)
+				}
 			}
 		}
 	}
@@ -1669,17 +1678,18 @@ func (channel *Channel) auditoriumFriends(client *Client) (friends []*Client) {
 	if !found {
 		return // non-members have no friends
 	}
-	if !channel.flags.HasMode(modes.Auditorium) {
-		return channel.membersCache // default behavior for members
-	}
-	if clientData.modes.HighestChannelUserMode() != modes.Mode(0) {
-		return channel.membersCache // +v and up can see everyone in the auditorium
-	}
-	// without +v, your friends are those with +v and up
+
+	isAuditorium := channel.flags.HasMode(modes.Auditorium)
+	isPowerful := clientData.modes.HighestChannelUserMode() != modes.Mode(0)
+
 	for member, memberData := range channel.members {
-		if memberData.modes.HighestChannelUserMode() != modes.Mode(0) {
-			friends = append(friends, member)
+		if memberData.hidden && member != client {
+			continue
 		}
+		if isAuditorium && !isPowerful && memberData.modes.HighestChannelUserMode() == modes.Mode(0) {
+			continue
+		}
+		friends = append(friends, member)
 	}
 	return
 }

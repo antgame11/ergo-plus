@@ -647,7 +647,17 @@ func (client *Client) addPushSubscription(endpoint string, keys webpush.Keys) er
 		sub.LastRefresh = now
 	} else {
 		if len(client.pushSubscriptions) >= config.WebPush.MaxSubscriptions {
-			return errLimitExceeded
+			var oldestEndpoint string
+			var oldestTime time.Time
+			for ep, s := range client.pushSubscriptions {
+				if oldestTime.IsZero() || s.LastRefresh.Before(oldestTime) {
+					oldestTime = s.LastRefresh
+					oldestEndpoint = ep
+				}
+			}
+			if oldestEndpoint != "" {
+				delete(client.pushSubscriptions, oldestEndpoint)
+			}
 		}
 		changed = true
 		sub = newPushSubscription(storedPushSubscription{

@@ -110,6 +110,13 @@ github.com/xdg-go/pbkdf2
 # github.com/xdg-go/scram v1.0.2 => github.com/ergochat/scram v1.0.2-ergo1
 ## explicit; go 1.11
 github.com/xdg-go/scram
+# go.starlark.net v0.0.0-20260210143700-b62fd896b91b
+## explicit; go 1.19
+go.starlark.net/internal/compile
+go.starlark.net/internal/spell
+go.starlark.net/resolve
+go.starlark.net/starlark
+go.starlark.net/syntax
 # golang.org/x/crypto v0.46.0
 ## explicit; go 1.24.0
 golang.org/x/crypto/bcrypt

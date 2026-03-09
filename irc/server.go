@@ -101,6 +101,7 @@ type Server struct {
 	flock             flock.Flocker
 	connIDCounter     atomic.Uint64
 	defcon            atomic.Uint32
+	plugins           *PluginManager
 
 	// API stuff
 	apiHandler  http.Handler // always initialized
@@ -131,6 +132,8 @@ func NewServer(config *Config, logger *logger.Manager) (*Server, error) {
 	server.whoWas.Initialize(config.Limits.WhowasEntries)
 	server.monitorManager.Initialize()
 	server.snomasks.Initialize()
+
+	server.plugins = NewPluginManager(server)
 
 	server.apiHandler = newAPIHandler(server)
 
@@ -378,6 +381,12 @@ func (server *Server) tryRegister(c *Client, session *Session) (exiting bool) {
 		return
 	}
 
+	// Starlark registration validation hook
+	if blockReason := server.plugins.OnValidateRegister(c.preregNick, c.username, session.rawHostname, session.IP().String()); blockReason != nil {
+		c.Quit(*blockReason, nil)
+		return true
+	}
+
 	if c.isSTSOnly {
 		server.playSTSBurst(session)
 		return true
@@ -489,6 +498,7 @@ func (server *Server) playRegistrationBurst(session *Session) {
 	if d.account != "" {
 		server.sendLoginSnomask(d.nickMask, d.accountName)
 	}
+	server.plugins.OnConnect(d.nick, session.IP().String())
 
 	// send welcome text
 	//NOTE(dan): we specifically use the NICK here instead of the nickmask
@@ -588,7 +598,7 @@ func (server *Server) MOTD(client *Client, rb *ResponseBuffer) {
 func (server *Server) handleAutojoins(session *Session, channelNames []string) {
 	rb := NewResponseBuffer(session)
 	for _, chname := range channelNames {
-		server.channels.Join(session.client, chname, "", false, rb)
+		server.channels.Join(session.client, chname, "", false, rb, false, false)
 	}
 	rb.Send(true)
 }
@@ -597,7 +607,12 @@ func (client *Client) whoisChannelsNames(target *Client, multiPrefix bool, hasPr
 	var chstrs []string
 	targetInvis := target.HasMode(modes.Invisible)
 	for _, channel := range target.Channels() {
-		if !hasPrivs && (targetInvis || channel.flags.HasMode(modes.Secret)) && !channel.hasClient(client) {
+		channel.stateMutex.RLock()
+		memberData := channel.members[target]
+		hidden := memberData != nil && memberData.hidden
+		channel.stateMutex.RUnlock()
+
+		if !hasPrivs && (targetInvis || channel.flags.HasMode(modes.Secret) || hidden) && !channel.hasClient(client) {
 			// client can't see *this* channel membership
 			continue
 		}

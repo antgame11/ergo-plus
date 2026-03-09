@@ -133,6 +133,7 @@ func performNickChange(server *Server, client *Client, target *Client, session *
 	if hadNick && newCfnick != details.nickCasefolded {
 		client.server.monitorManager.AlertAbout(details.nick, details.nickCasefolded, false, nil)
 		client.server.monitorManager.AlertAbout(assignedNickname, newCfnick, true, target)
+		server.plugins.OnNick(details.nick, assignedNickname)
 	}
 	return nil
 }
