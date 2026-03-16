@@ -25,6 +25,7 @@ require (
 )
 
 require (
+	github.com/d5/tengo/v2 v2.17.0
 	github.com/emersion/go-msgauth v0.7.0
 	github.com/ergochat/webpush-go/v2 v2.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
@@ -45,6 +46,7 @@ require (
 	github.com/tidwall/rtred v0.1.2 // indirect
 	github.com/tidwall/tinyqueue v0.1.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.starlark.net v0.0.0-20260210143700-b62fd896b91b // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect

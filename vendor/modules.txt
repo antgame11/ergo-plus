@@ -11,6 +11,8 @@ github.com/GehirnInc/crypt
 github.com/GehirnInc/crypt/common
 github.com/GehirnInc/crypt/internal
 github.com/GehirnInc/crypt/md5_crypt
+# github.com/d5/tengo/v2 v2.17.0
+## explicit; go 1.13
 # github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
 ## explicit
 github.com/docopt/docopt-go
@@ -110,13 +112,14 @@ github.com/xdg-go/pbkdf2
 # github.com/xdg-go/scram v1.0.2 => github.com/ergochat/scram v1.0.2-ergo1
 ## explicit; go 1.11
 github.com/xdg-go/scram
+# github.com/yuin/gopher-lua v1.1.1
+## explicit; go 1.17
+github.com/yuin/gopher-lua
+github.com/yuin/gopher-lua/ast
+github.com/yuin/gopher-lua/parse
+github.com/yuin/gopher-lua/pm
 # go.starlark.net v0.0.0-20260210143700-b62fd896b91b
 ## explicit; go 1.19
-go.starlark.net/internal/compile
-go.starlark.net/internal/spell
-go.starlark.net/resolve
-go.starlark.net/starlark
-go.starlark.net/syntax
 # golang.org/x/crypto v0.46.0
 ## explicit; go 1.24.0
 golang.org/x/crypto/bcrypt

@@ -2377,6 +2377,20 @@ func dispatchMessageToTarget(client *Client, tags map[string]string, histType hi
 			return
 		}
 		channel.SendSplitMessage(command, lowestPrefix, tags, client, message, rb)
+
+		// @everyone ping for admins
+		if command == "PRIVMSG" && client.Oper() != nil && strings.Contains(message.Message, "@everyone") {
+			chname := channel.Name()
+			pingMsg := fmt.Sprintf("[%s] @everyone ping from %s: %s", chname, client.Nick(), message.Message)
+			for _, member := range channel.Members() {
+				if member == client {
+					continue
+				}
+				for _, session := range member.Sessions() {
+					session.Send(nil, server.name, "NOTICE", member.Nick(), pingMsg)
+				}
+			}
+		}
 	} else if target[0] == '$' && len(target) > 2 && client.Oper().HasRoleCapab("massmessage") {
 		details := client.Details()
 		matcher, err := utils.CompileGlob(target[2:], false)
